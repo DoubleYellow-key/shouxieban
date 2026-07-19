@@ -11,6 +11,16 @@ except ImportError:  # Pillow is optional; the app works without it.
 BACKGROUND = "#fffdf7"
 DEFAULT_INK = "#202124"
 MAX_UNDO_STEPS = 50
+APP_BG = "#f7f8fb"
+PANEL_BG = "#ffffff"
+PANEL_ALT = "#f0f3f7"
+TEXT = "#1f2933"
+MUTED = "#687385"
+ACCENT = "#1f9d95"
+ACCENT_DARK = "#14736d"
+DANGER = "#c2412d"
+LINE = "#d8dee8"
+SWATCHES = ["#202124", "#d14335", "#1d6f9f", "#2d7a46", "#7c3aed", "#b7791f"]
 
 
 class HandwritingPad:
@@ -32,113 +42,325 @@ class HandwritingPad:
         self._update_status("准备书写")
 
     def _build_ui(self):
-        self.root.configure(bg="#f5f2ea")
+        self.root.configure(bg=APP_BG)
 
-        toolbar = tk.Frame(self.root, bg="#f5f2ea", padx=12, pady=10)
-        toolbar.pack(side=tk.TOP, fill=tk.X)
+        header = tk.Frame(self.root, bg=APP_BG, padx=22, pady=16)
+        header.pack(side=tk.TOP, fill=tk.X)
+
+        title_block = tk.Frame(header, bg=APP_BG)
+        title_block.pack(side=tk.LEFT)
 
         title = tk.Label(
-            toolbar,
-            text="手写板",
-            font=("TkDefaultFont", 18, "bold"),
-            fg="#202124",
-            bg="#f5f2ea",
+            title_block,
+            text="Ink Studio",
+            font=("Avenir Next", 24, "bold"),
+            fg=TEXT,
+            bg=APP_BG,
         )
-        title.pack(side=tk.LEFT, padx=(0, 14))
+        title.pack(anchor=tk.W)
 
-        self.pen_button = tk.Radiobutton(
-            toolbar,
-            text="画笔",
-            variable=self.tool,
-            value="pen",
-            indicatoron=False,
-            command=lambda: self._update_status("正在使用画笔"),
-            width=6,
+        subtitle = tk.Label(
+            title_block,
+            text="Python 桌面手写板",
+            font=("TkDefaultFont", 12),
+            fg=MUTED,
+            bg=APP_BG,
         )
-        self.pen_button.pack(side=tk.LEFT, padx=3)
+        subtitle.pack(anchor=tk.W, pady=(2, 0))
 
-        self.eraser_button = tk.Radiobutton(
-            toolbar,
-            text="橡皮",
-            variable=self.tool,
-            value="eraser",
-            indicatoron=False,
-            command=lambda: self._update_status("正在使用橡皮"),
-            width=6,
-        )
-        self.eraser_button.pack(side=tk.LEFT, padx=3)
-
-        self.color_button = tk.Button(
-            toolbar,
-            text="颜色",
-            command=self.choose_color,
-            width=6,
-        )
-        self.color_button.pack(side=tk.LEFT, padx=(12, 3))
-
-        self.color_preview = tk.Label(
-            toolbar,
+        self.status = tk.Label(
+            header,
             text="",
-            width=3,
-            bg=self.color,
-            relief=tk.SOLID,
-            borderwidth=1,
+            bg="#e8f8f6",
+            fg=ACCENT_DARK,
+            padx=14,
+            pady=7,
+            font=("TkDefaultFont", 11, "bold"),
         )
-        self.color_preview.pack(side=tk.LEFT, padx=(0, 12), ipady=9)
+        self.status.pack(side=tk.RIGHT)
 
-        size_label = tk.Label(toolbar, text="粗细", bg="#f5f2ea", fg="#6f6a61")
-        size_label.pack(side=tk.LEFT, padx=(0, 4))
+        workspace = tk.Frame(self.root, bg=APP_BG, padx=22, pady=0)
+        workspace.pack(fill=tk.BOTH, expand=True)
 
+        sidebar = tk.Frame(workspace, bg=PANEL_BG, width=228, padx=14, pady=16)
+        sidebar.pack(side=tk.LEFT, fill=tk.Y)
+        sidebar.pack_propagate(False)
+
+        self._section_label(sidebar, "工具")
+        self.tool_buttons = {
+            "pen": self._tool_button(sidebar, "画笔", "pen"),
+            "eraser": self._tool_button(sidebar, "橡皮", "eraser"),
+        }
+
+        self._section_label(sidebar, "颜色")
+        swatch_grid = tk.Frame(sidebar, bg=PANEL_BG)
+        swatch_grid.pack(fill=tk.X, pady=(0, 12))
+        self.swatch_buttons = []
+        for index, swatch in enumerate(SWATCHES):
+            button = tk.Button(
+                swatch_grid,
+                text="",
+                command=lambda value=swatch: self.set_color(value),
+                width=3,
+                height=1,
+                bg=swatch,
+                activebackground=swatch,
+                relief=tk.FLAT,
+                borderwidth=0,
+                cursor="hand2",
+            )
+            button.grid(row=index // 3, column=index % 3, padx=4, pady=4, sticky=tk.EW)
+            self.swatch_buttons.append((swatch, button))
+
+        for column in range(3):
+            swatch_grid.columnconfigure(column, weight=1)
+
+        self.color_button = self._action_button(sidebar, "自定义颜色", self.choose_color)
+        self.color_button.pack(fill=tk.X, pady=(0, 14), ipady=5)
+
+        self._section_label(sidebar, "笔触")
         self.size_scale = tk.Scale(
-            toolbar,
+            sidebar,
             from_=1,
             to=36,
             orient=tk.HORIZONTAL,
             variable=self.size,
+            command=lambda _value: self._update_brush_preview(),
             showvalue=True,
-            length=160,
-            bg="#f5f2ea",
+            length=170,
+            bg=PANEL_BG,
+            fg=TEXT,
+            troughcolor=LINE,
+            activebackground=ACCENT,
             highlightthickness=0,
         )
-        self.size_scale.pack(side=tk.LEFT, padx=(0, 12))
+        self.size_scale.pack(fill=tk.X, pady=(0, 8))
 
-        self.undo_button = tk.Button(toolbar, text="撤销", command=self.undo, width=6, state=tk.DISABLED)
-        self.undo_button.pack(side=tk.LEFT, padx=3)
+        self.brush_preview = tk.Canvas(
+            sidebar,
+            width=180,
+            height=54,
+            bg=PANEL_ALT,
+            highlightthickness=1,
+            highlightbackground=LINE,
+        )
+        self.brush_preview.pack(fill=tk.X, pady=(0, 18))
 
-        clear_button = tk.Button(toolbar, text="清空", command=self.clear, width=6, fg="#a94532")
-        clear_button.pack(side=tk.LEFT, padx=3)
+        self._section_label(sidebar, "操作")
+        self.undo_button = self._action_button(sidebar, "撤销  Ctrl+Z", self.undo)
+        self.undo_button.pack(fill=tk.X, pady=4, ipady=6)
+        self._set_clickable_enabled(self.undo_button, False)
 
-        save_button = tk.Button(toolbar, text="保存", command=self.save, width=6)
-        save_button.pack(side=tk.LEFT, padx=3)
+        clear_button = self._action_button(sidebar, "清空", self.clear, fg=DANGER)
+        clear_button.pack(fill=tk.X, pady=4, ipady=6)
 
-        self.status = tk.Label(toolbar, text="", bg="#f5f2ea", fg="#6f6a61", anchor=tk.E)
-        self.status.pack(side=tk.RIGHT, padx=(12, 0))
+        save_button = self._action_button(sidebar, "保存", self.save, bg=ACCENT, fg="#ffffff", active_bg=ACCENT_DARK)
+        save_button.pack(fill=tk.X, pady=(4, 0), ipady=7)
+
+        stage = tk.Frame(workspace, bg=APP_BG, padx=18)
+        stage.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        canvas_header = tk.Frame(stage, bg=APP_BG)
+        canvas_header.pack(fill=tk.X, pady=(0, 10))
+
+        canvas_title = tk.Label(
+            canvas_header,
+            text="画布",
+            font=("Avenir Next", 16, "bold"),
+            fg=TEXT,
+            bg=APP_BG,
+        )
+        canvas_title.pack(side=tk.LEFT)
+
+        hint = tk.Label(
+            canvas_header,
+            text="按住左键拖动书写",
+            fg=MUTED,
+            bg=APP_BG,
+            font=("TkDefaultFont", 11),
+        )
+        hint.pack(side=tk.RIGHT)
 
         self.canvas = tk.Canvas(
-            self.root,
+            stage,
             bg=BACKGROUND,
             highlightthickness=1,
-            highlightbackground="#d8d1c3",
+            highlightbackground=LINE,
             cursor="crosshair",
         )
-        self.canvas.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
+        self.canvas.pack(fill=tk.BOTH, expand=True)
 
         self.canvas.bind("<ButtonPress-1>", self.start_stroke)
         self.canvas.bind("<B1-Motion>", self.draw)
         self.canvas.bind("<ButtonRelease-1>", self.end_stroke)
+        self.root.bind("<Control-z>", lambda _event: self.undo())
+        self.root.bind("<Command-z>", lambda _event: self.undo())
+        self.root.bind("<Control-s>", lambda _event: self.save())
+        self.root.bind("<Command-s>", lambda _event: self.save())
+        self._refresh_tool_buttons()
+        self._refresh_swatch_buttons()
+        self._update_brush_preview()
+
+    def _section_label(self, parent, text):
+        label = tk.Label(
+            parent,
+            text=text,
+            bg=PANEL_BG,
+            fg=MUTED,
+            font=("TkDefaultFont", 10, "bold"),
+        )
+        label.pack(anchor=tk.W, pady=(14, 7))
+        return label
+
+    def _tool_button(self, parent, text, tool):
+        button = tk.Label(
+            parent,
+            text=text,
+            relief=tk.FLAT,
+            borderwidth=0,
+            cursor="hand2",
+            anchor=tk.CENTER,
+            font=("TkDefaultFont", 12, "bold"),
+        )
+        self._bind_clickable(button, lambda: self.select_tool(tool))
+        button.pack(fill=tk.X, pady=4, ipady=8)
+        return button
+
+    def _action_button(self, parent, text, command, bg=PANEL_ALT, fg=TEXT, active_bg="#e1e7ef"):
+        button = tk.Label(
+            parent,
+            text=text,
+            bg=bg,
+            fg=fg,
+            activebackground=active_bg,
+            relief=tk.FLAT,
+            borderwidth=0,
+            cursor="hand2",
+            anchor=tk.CENTER,
+            font=("TkDefaultFont", 11, "bold"),
+        )
+        self._style_clickable(button, bg, fg, active_bg, fg)
+        self._bind_clickable(button, command)
+        return button
+
+    def _bind_clickable(self, widget, command):
+        widget._command = command
+        widget._enabled = True
+        widget.bind("<Enter>", lambda _event: self._hover_clickable(widget, True))
+        widget.bind("<Leave>", lambda _event: self._hover_clickable(widget, False))
+        widget.bind("<Button-1>", lambda _event: self._click_clickable(widget))
+
+    def _style_clickable(self, widget, bg, fg, active_bg, active_fg):
+        widget._colors = {
+            "bg": bg,
+            "fg": fg,
+            "active_bg": active_bg,
+            "active_fg": active_fg,
+            "disabled_bg": "#eef1f5",
+            "disabled_fg": "#6b7280",
+        }
+        if getattr(widget, "_enabled", True):
+            widget.configure(bg=bg, fg=fg)
+
+    def _hover_clickable(self, widget, hovering):
+        if not getattr(widget, "_enabled", True):
+            return
+        colors = widget._colors
+        widget.configure(
+            bg=colors["active_bg"] if hovering else colors["bg"],
+            fg=colors["active_fg"] if hovering else colors["fg"],
+        )
+
+    def _click_clickable(self, widget):
+        if getattr(widget, "_enabled", True):
+            widget._command()
+
+    def _set_clickable_enabled(self, widget, enabled):
+        widget._enabled = enabled
+        colors = widget._colors
+        if enabled:
+            widget.configure(bg=colors["bg"], fg=colors["fg"], cursor="hand2")
+        else:
+            widget.configure(bg=colors["disabled_bg"], fg=colors["disabled_fg"], cursor="arrow")
 
     def _update_status(self, text):
         self.status.configure(text=text)
+
+    def select_tool(self, tool):
+        self.tool.set(tool)
+        self.canvas.configure(cursor="crosshair" if tool == "pen" else "dotbox")
+        self._refresh_tool_buttons()
+        self._update_brush_preview()
+        self._update_status("正在使用画笔" if tool == "pen" else "正在使用橡皮")
+
+    def set_color(self, color):
+        self.color = color
+        self.tool.set("pen")
+        self.canvas.configure(cursor="crosshair")
+        self._refresh_tool_buttons()
+        self._refresh_swatch_buttons()
+        self._update_brush_preview()
+        self._update_status("已选择颜色")
+
+    def _refresh_tool_buttons(self):
+        for tool, button in self.tool_buttons.items():
+            selected = self.tool.get() == tool
+            button.configure(
+                bg=ACCENT if selected else PANEL_ALT,
+                fg="#ffffff" if selected else TEXT,
+            )
+            self._style_clickable(
+                button,
+                ACCENT if selected else PANEL_ALT,
+                "#ffffff" if selected else TEXT,
+                ACCENT_DARK if selected else "#e1e7ef",
+                "#ffffff" if selected else TEXT,
+            )
+
+    def _refresh_swatch_buttons(self):
+        for swatch, button in self.swatch_buttons:
+            selected = swatch.lower() == self.color.lower()
+            button.configure(
+                relief=tk.SOLID if selected else tk.FLAT,
+                borderwidth=3 if selected else 0,
+                highlightthickness=2 if selected else 0,
+                highlightbackground=ACCENT if selected else PANEL_BG,
+            )
+
+    def _update_brush_preview(self):
+        if not hasattr(self, "brush_preview"):
+            return
+        self.brush_preview.delete("all")
+        width = self.size.get()
+        color = BACKGROUND if self.tool.get() == "eraser" else self.color
+        outline = "#94a3b8" if self.tool.get() == "eraser" else color
+        preview_width = max(width * (3 if self.tool.get() == "eraser" else 1), 8)
+        self.brush_preview.create_line(
+            22,
+            28,
+            158,
+            28,
+            fill=color,
+            width=preview_width,
+            capstyle=tk.ROUND,
+            smooth=True,
+        )
+        if self.tool.get() == "eraser":
+            self.brush_preview.create_line(
+                22,
+                28,
+                158,
+                28,
+                fill=outline,
+                width=1,
+                dash=(4, 3),
+            )
 
     def choose_color(self):
         selected = colorchooser.askcolor(color=self.color, title="选择画笔颜色")
         if not selected or not selected[1]:
             return
-        self.color = selected[1]
-        self.color_preview.configure(bg=self.color)
-        self.tool.set("pen")
-        self.canvas.configure(cursor="crosshair")
-        self._update_status("已选择颜色")
+        self.set_color(selected[1])
 
     def start_stroke(self, event):
         self.last_x = event.x
@@ -185,8 +407,7 @@ class HandwritingPad:
             self._update_status("准备书写")
 
     def _set_undo_enabled(self):
-        state = tk.NORMAL if self.undo_stack else tk.DISABLED
-        self.undo_button.configure(state=state)
+        self._set_clickable_enabled(self.undo_button, bool(self.undo_stack))
 
     def undo(self):
         if not self.undo_stack:
