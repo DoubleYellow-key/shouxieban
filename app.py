@@ -33,8 +33,10 @@ class HandwritingPad:
         self.tool = tk.StringVar(value="pen")
         self.color = DEFAULT_INK
         self.size = tk.IntVar(value=6)
+        self.eraser_size = tk.IntVar(value=28)
         self.last_x = None
         self.last_y = None
+        self.stroke_tool = None
         self.current_stroke = []
         self.undo_stack = []
 
@@ -135,6 +137,26 @@ class HandwritingPad:
         )
         self.size_scale.pack(fill=tk.X, pady=(0, 8))
 
+        eraser_label = tk.Label(sidebar, text="橡皮大小", bg=PANEL_BG, fg=MUTED)
+        eraser_label.pack(anchor=tk.W, pady=(0, 4))
+
+        self.eraser_scale = tk.Scale(
+            sidebar,
+            from_=8,
+            to=96,
+            orient=tk.HORIZONTAL,
+            variable=self.eraser_size,
+            command=lambda _value: self._update_brush_preview(),
+            showvalue=True,
+            length=170,
+            bg=PANEL_BG,
+            fg=TEXT,
+            troughcolor=LINE,
+            activebackground=ACCENT,
+            highlightthickness=0,
+        )
+        self.eraser_scale.pack(fill=tk.X, pady=(0, 8))
+
         self.brush_preview = tk.Canvas(
             sidebar,
             width=180,
@@ -173,7 +195,7 @@ class HandwritingPad:
 
         hint = tk.Label(
             canvas_header,
-            text="按住左键拖动书写",
+            text="左键书写，右键临时擦除",
             fg=MUTED,
             bg=APP_BG,
             font=("TkDefaultFont", 11),
@@ -192,6 +214,15 @@ class HandwritingPad:
         self.canvas.bind("<ButtonPress-1>", self.start_stroke)
         self.canvas.bind("<B1-Motion>", self.draw)
         self.canvas.bind("<ButtonRelease-1>", self.end_stroke)
+        self.canvas.bind("<ButtonPress-2>", self.start_right_erase)
+        self.canvas.bind("<B2-Motion>", self.draw)
+        self.canvas.bind("<ButtonRelease-2>", self.end_stroke)
+        self.canvas.bind("<ButtonPress-3>", self.start_right_erase)
+        self.canvas.bind("<B3-Motion>", self.draw)
+        self.canvas.bind("<ButtonRelease-3>", self.end_stroke)
+        self.canvas.bind("<Control-ButtonPress-1>", self.start_right_erase)
+        self.canvas.bind("<Control-B1-Motion>", self.draw)
+        self.canvas.bind("<Control-ButtonRelease-1>", self.end_stroke)
         self.root.bind("<Control-z>", lambda _event: self.undo())
         self.root.bind("<Command-z>", lambda _event: self.undo())
         self.root.bind("<Control-s>", lambda _event: self.save())
@@ -334,7 +365,7 @@ class HandwritingPad:
         width = self.size.get()
         color = BACKGROUND if self.tool.get() == "eraser" else self.color
         outline = "#94a3b8" if self.tool.get() == "eraser" else color
-        preview_width = max(width * (3 if self.tool.get() == "eraser" else 1), 8)
+        preview_width = self.eraser_size.get() if self.tool.get() == "eraser" else width
         self.brush_preview.create_line(
             22,
             28,
@@ -362,20 +393,24 @@ class HandwritingPad:
             return
         self.set_color(selected[1])
 
-    def start_stroke(self, event):
+    def start_stroke(self, event, tool=None):
         self.last_x = event.x
         self.last_y = event.y
+        self.stroke_tool = tool or self.tool.get()
         self.current_stroke = []
-        self._update_status("书写中" if self.tool.get() == "pen" else "擦除中")
+        self._update_status("书写中" if self.stroke_tool == "pen" else "擦除中")
+
+    def start_right_erase(self, event):
+        self.start_stroke(event, tool="eraser")
 
     def draw(self, event):
         if self.last_x is None or self.last_y is None:
             return
 
         width = self.size.get()
-        if self.tool.get() == "eraser":
+        if self.stroke_tool == "eraser":
             color = BACKGROUND
-            width = max(width * 3, 8)
+            width = self.eraser_size.get()
         else:
             color = self.color
 
@@ -397,6 +432,7 @@ class HandwritingPad:
     def end_stroke(self, _event):
         self.last_x = None
         self.last_y = None
+        self.stroke_tool = None
         if self.current_stroke:
             self.undo_stack.append(("stroke", self.current_stroke))
             self.undo_stack = self.undo_stack[-MAX_UNDO_STEPS:]
