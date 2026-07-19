@@ -97,18 +97,17 @@ class HandwritingPad:
         swatch_grid.pack(fill=tk.X, pady=(0, 12))
         self.swatch_buttons = []
         for index, swatch in enumerate(SWATCHES):
-            button = tk.Button(
+            button = tk.Label(
                 swatch_grid,
                 text="",
-                command=lambda value=swatch: self.set_color(value),
                 width=3,
                 height=1,
                 bg=swatch,
-                activebackground=swatch,
-                relief=tk.FLAT,
-                borderwidth=0,
+                relief=tk.SOLID,
+                borderwidth=1,
                 cursor="hand2",
             )
+            button.bind("<Button-1>", lambda _event, value=swatch: self.set_color(value))
             button.grid(row=index // 3, column=index % 3, padx=4, pady=4, sticky=tk.EW)
             self.swatch_buttons.append((swatch, button))
 
@@ -325,6 +324,7 @@ class HandwritingPad:
                 borderwidth=3 if selected else 0,
                 highlightthickness=2 if selected else 0,
                 highlightbackground=ACCENT if selected else PANEL_BG,
+                bg=swatch,
             )
 
     def _update_brush_preview(self):
